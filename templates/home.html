@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div style="display:flex; gap:20px;">
+
+    <!-- Left sidebar: sensors -->
+    <div style="flex:1; max-width:300px;">
+        <h2>Sensors</h2>
+        <div id="sidebar-sensors"></div>
+
+        <!-- Button to copy sensor data -->
+        <button id="copy-sensor-data-btn" style="margin-top:10px; width:100%;">Copy Sensor Data to AI Question</button>
+
+        <!-- Pump Control -->
+        <h2 style="margin-top:20px;">Pump Control</h2>
+        <div class="sensor-card">
+            Pump: <span id="pump-state">OFF</span><br>
+            <button onclick="togglePump()">Toggle Pump</button>
+        </div>
+    </div>
+
+    <!-- Right main content -->
+    <div style="flex:3;">
+        <h2 id="dashboard-greeting"></h2>
+
+        <h2>Weather Forecast</h2>
+        <div id="weather-city"></div>
+        <div id="weather-data"></div>
+
+        <h2>Alerts</h2>
+        <div id="alerts"></div>
+
+        <h2>AI Advisory</h2>
+        <textarea id="ai-question" placeholder="Ask farming advice..."></textarea>
+        <button id="ask-ai-btn">Ask AI</button>
+        <textarea id="ai-response" readonly></textarea>
+    </div>
+
+</div>
+
+<style>
+.sensor-card.gray {
+    background-color: #ccc;
+    color: #333;
+}
+</style>
+
+<script>
+// ------------------- Farm Type -------------------
+let farmType = localStorage.getItem("farmType") || "soil";
+
+function setFarmType(type) {
+    farmType = type;
+
+    const greeting = farmType === "soil" ? 
+        "Hello, here is your Soil Farm Dashboard" :
+        "Hello, here is your Hydroponic Farm Dashboard";
+    document.getElementById("dashboard-greeting").innerText = greeting;
+
+    const allSensors = {
+        soil: [
+            "SoilMoisture",
+            "Rain",
+            "TankLevel",
+            "Gas",
+            "AirTemp",
+            "AirHumidity",
+            "SoilTemp",
+            "Light"
+        ],
+        hydro: [
+            "SoilMoisture",
+            "Rain",
+            "TankLevel",
+            "Gas",
+            "AirTemp",
+            "AirHumidity",
+            "SoilTemp",
+            "Light",
+            "pH",
+            "TDS",
+            "WaterFlow"
+        ]
+    };
+
+    return allSensors[type];
+}
+
+let displayedSensors = setFarmType(farmType);
+
+// ------------------- Name mapping -------------------
+const sensorMap = {
+    SoilMoisture: "ESP32_Soil",
+    Rain: "ESP32_Rain",
+    TankLevel: "ESP32_TankLevel",
+    Gas: "ESP32_Gas",
+    AirTemp: "ESP32_Temp",
+    AirHumidity: "ESP32_Humidity",
+    SoilTemp: "ESP32_SoilTemp",
+    Light: "ESP32_Light",
+    pH: "ESP32_pH",
+    TDS: "ESP32_TDS",
+    WaterFlow: "ESP32_WaterFlow"
+};
+
+// ------------------- Units mapping -------------------
+const sensorUnits = {
+    SoilMoisture: "%",
+    Rain: "mm",
+    TankLevel: "%",
+    Gas: "ppm",
+    AirTemp: "°C",
+    AirHumidity: "%",
+    SoilTemp: "°C",
+    Light: "lux",
+    pH: "",
+    TDS: "ppm",
+    WaterFlow: "L/min"
+};
+
+// ------------------- Sensors Sidebar -------------------
+const sidebar = document.getElementById("sidebar-sensors");
+
+function createSensorCards() {
+    sidebar.innerHTML = "";
+    displayedSensors.forEach(sensor => {
+        const card = document.createElement("div");
+        card.className = "sensor-card green";
+        card.id = sensor + "-card";
+        card.innerHTML = `${sensor}: -- ${sensorUnits[sensor] || ""}`;
+        sidebar.appendChild(card);
+    });
+}
+
+createSensorCards();
+
+// ------------------- Fetch Sensor Data -------------------
+async function fetchSensorData() {
+    const res = await fetch("/latest-data");
+    const data = await res.json();
+
+    displayedSensors.forEach(sensor => {
+        const backendKey = sensorMap[sensor];
+        if (backendKey && data.readings[backendKey] !== undefined) {
+
+            let val = data.readings[backendKey];
+            let unit = sensorUnits[sensor] || "";
+            let card = document.getElementById(sensor + "-card");
+
+            if (val === "Offline") {
+                card.innerHTML = `${sensor}: Offline`;
+                card.className = "sensor-card gray";
+                return;
+            }
+
+            card.innerHTML = `${sensor}: ${val} ${unit}`;
+        }
+    });
+
+    document.getElementById("alerts").innerHTML =
+        data.alerts.length > 0 ? data.alerts.join("<br>") : "";
+}
+
+setInterval(fetchSensorData, 5000);
+fetchSensorData();
+
+// ------------------- Pump Control -------------------
+async function fetchPumpState() {
+    const res = await fetch("/actuators");
+    const data = await res.json();
+    document.getElementById("pump-state").innerText =
+        data.Pump ? "ON" : "OFF";
+}
+
+async function togglePump() {
+    const current =
+        document.getElementById("pump-state").innerText === "ON";
+
+    await fetch("/toggle-actuator", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({name:"Pump", state:!current})
+    });
+
+    fetchPumpState();
+}
+
+setInterval(fetchPumpState, 5000);
+fetchPumpState();
+
+// ------------------- Weather -------------------
+async function fetchWeather() {
+    const res = await fetch("/weather?city=Port%20Louis");
+    const data = await res.json();
+    document.getElementById("weather-city").innerHTML = "<b>City:</b> " + data.city;
+
+    let html = "";
+    data.forecast.forEach(item => {
+        html += `
+        <div class="weather-card">
+            <b>${item.time}</b><br>
+            🌡 ${item.temperature}°C<br>
+            💧 ${item.humidity}%<br>
+            💨 ${item.wind_speed} m/s<br>
+            ${item.description}
+        </div>`;
+    });
+    document.getElementById("weather-data").innerHTML = html;
+}
+
+fetchWeather();
+setInterval(fetchWeather, 600000);
+
+// ------------------- AI Advisory -------------------
+document.getElementById("ask-ai-btn").addEventListener("click", async () => {
+    const question = document.getElementById("ai-question").value;
+    const typeText = farmType === "soil" ? "soil farming" : "hydroponic farming";
+
+    const res = await fetch("/ask-ai", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+            question: `You are an expert in ${typeText}. Question: ${question}`,
+            farm_type: farmType
+        })
+    });
+
+    const data = await res.json();
+    document.getElementById("ai-response").value = data.response;
+});
+
+// ------------------- Copy sensor data to AI textarea -------------------
+document.getElementById("copy-sensor-data-btn").addEventListener("click", () => {
+    let sensorText = "";
+
+    displayedSensors.forEach(sensor => {
+        const card = document.getElementById(sensor + "-card");
+        if (card) {
+            let valText = card.innerText.split(":")[1]?.trim() || "--";
+
+            if (card.innerText.includes("Offline")) {
+                valText = "Offline";
+            }
+
+            let unit = sensorUnits[sensor] || "";
+            sensorText += `${sensor}: ${valText} ${unit}\n`;
+        }
+    });
+
+    sensorText += "\nQuestion: ";
+    document.getElementById("ai-question").value = sensorText.trim();
+    document.getElementById("ai-question").focus();
+});
+
+// ------------------- Update on farmType change -------------------
+window.addEventListener("storage", (event) => {
+    if(event.key === "farmType") {
+        displayedSensors = setFarmType(event.newValue);
+        createSensorCards();
+        fetchSensorData();
+    }
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analytics - Smart Farm</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body{
+            font-family: Arial;
+            margin: 0;
+            display: flex;
+            background: #f4f6f9;
+        }
+
+        #sidebar{
+            width: 200px;
+            background: #1f2937;
+            color: white;
+            padding: 15px;
+            min-height: 100vh;
+        }
+
+        #sidebar h2{
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        #sidebar a{
+            display: block;
+            color: white;
+            text-decoration: none;
+            padding: 8px 0;
+        }
+
+        #sidebar a:hover{
+            background: #374151;
+            border-radius: 4px;
+        }
+
+        #main{
+            flex: 1;
+            padding: 20px;
+        }
+
+        #charts-container{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            justify-items: center;
+        }
+
+        .chart-card{
+            width: 528px;
+            height: 302px;
+            background: #fff;
+            padding: 8px;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chart-title{
+            font-weight: bold;
+            margin-bottom: 6px;
+            text-align: center;
+        }
+
+        canvas{
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        #time-range-container{
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <h2>Smart Farm</h2>
+    <a href="{{ url_for('home') }}">Home</a>
+    <a href="{{ url_for('settings') }}">Settings</a>
+    <a href="{{ url_for('analytics') }}">Analytics</a>
+</div>
+
+<div id="main">
+    <h1>Sensor Analytics</h1>
+    
+    <div id="time-range-container">
+        <label for="time-range">Select Time Range:</label>
+        <select id="time-range">
+            <option value="hour">Last Hour</option>
+            <option value="day" selected>Last Day</option>
+            <option value="week">Last Week</option>
+            <option value="month">Last Month</option>
+        </select>
+    </div>
+
+    <div id="charts-container"></div>
+</div>
+
+<script>
+const sensors = [
+    {name:"ESP32_Temp", label:"Temperature °C"},
+    {name:"ESP32_Humidity", label:"Humidity %"},
+    {name:"ESP32_Light", label:"Light LUX"},
+    {name:"ESP32_Rain", label:"Rain %"},
+    {name:"ESP32_Soil", label:"Soil Moisture %"},
+    {name:"ESP32_SoilTemp", label:"Soil Temp °C"},
+    {name:"ESP32_Gas", label:"Gas ppm"},
+    {name:"ESP32_WaterFlow", label:"Water Flow L/m"},
+    {name:"ESP32_TankLevel", label:"Tank Level %"},
+    {name:"ESP32_pH", label:"pH (0-14)"},
+    {name:"ESP32_TDS", label:"TDS PPM "}
+];
+
+const container = document.getElementById("charts-container");
+const charts = {};
+const timeRangeSelect = document.getElementById("time-range");
+
+// Create charts
+sensors.forEach(sensor => {
+    const card = document.createElement("div");
+    card.className = "chart-card";
+
+    const title = document.createElement("div");
+    title.className = "chart-title";
+    title.innerText = sensor.label;
+    card.appendChild(title);
+
+    const canvas = document.createElement("canvas");
+    card.appendChild(canvas);
+    container.appendChild(card);
+
+    charts[sensor.name] = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: sensor.label,
+                data: [],
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend:{display:false} },
+            scales: {
+                x: { ticks: {font:{size:10}} },
+                y: { ticks: {font:{size:10}} }
+            }
+        }
+    });
+});
+
+// Fetch analytics data from DB
+async function fetchAnalyticsData(){
+    try {
+        const range = timeRangeSelect.value;
+        const res = await fetch(`/analytics-data?range=${range}`);
+        const dbData = await res.json();
+
+        sensors.forEach(sensor=>{
+            const chart = charts[sensor.name];
+
+            if(dbData[sensor.name]){
+                chart.data.labels = dbData[sensor.name].labels.map(ts => {
+                    const date = new Date(ts);
+                    if(range === "hour" || range === "day") {
+                        return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                    } else {
+                        return date.toLocaleDateString();
+                    }
+                });
+
+                chart.data.datasets[0].data = dbData[sensor.name].values;
+                chart.update();
+            }
+        });
+
+    } catch(err) {
+        console.error("Analytics fetch error:", err);
+    }
+}
+
+// initial load
+fetchAnalyticsData();
+
+// refresh every 30 sec
+setInterval(fetchAnalyticsData, 30000);
+
+// update charts when dropdown changes
+timeRangeSelect.addEventListener("change", fetchAnalyticsData);
+</script>
+
+</body>
+</html>
