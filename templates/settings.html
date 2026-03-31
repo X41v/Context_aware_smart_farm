@@ -94,197 +94,200 @@
     <button id="retrain-btn" style="margin-top:10px;">Retrain AI</button>
 </div>
 
-<script>
-// ---------------- Farm Type -----------------
-const dropdown = document.getElementById("farm-type-dropdown");
-const currentType = localStorage.getItem("farmType") || "soil";
-dropdown.value = currentType;
+<script defer>
+document.addEventListener("DOMContentLoaded", () => {
 
-dropdown.addEventListener("change", () => {
-    localStorage.setItem("farmType", dropdown.value);
-    alert(`Farm type set to ${dropdown.value === "soil" ? "Soil Farm" : "Hydroponic Farm"}. Dashboard will reflect the change on refresh.`);
-});
-
-// ---------------- Actuators -----------------
-const actuatorButtons = {
-    Fan: document.getElementById("Fan-btn"),
-    Light: document.getElementById("Light-btn"),
-    Pump: document.getElementById("Pump-btn")
-};
-
-async function fetchActuators() {
-    try {
-        const res = await fetch("/actuators");
-        const data = await res.json();
-        Object.keys(data).forEach(name => {
-            document.getElementById(name + "-state").innerText = data[name] ? "ON" : "OFF";
-        });
-    } catch (err) { console.error(err); }
-}
-
-async function toggleActuator(name) {
-    const currentState = document.getElementById(name + "-state").innerText === "ON";
-    try {
-        const res = await fetch("/toggle-actuator", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name:name, state:!currentState})
-        });
-        const data = await res.json();
-        if(data.success) fetchActuators();
-    } catch(err) { console.error(err); }
-}
-
-Object.keys(actuatorButtons).forEach(name => {
-    actuatorButtons[name].addEventListener("click", () => toggleActuator(name));
-});
-fetchActuators();
-setInterval(fetchActuators, 5000);
-
-// ---------------- Sensor Enable/Disable -----------------
-const sensorNames = [
-    "ESP32_Temp","ESP32_Humidity","ESP32_Pressure","ESP32_Light","ESP32_Rain",
-    "ESP32_Soil","ESP32_SoilTemp","ESP32_Gas","ESP32_WaterFlow","ESP32_TankLevel",
-    "ESP32_pH","ESP32_TDS","ESP32_EC"
-];
-
-sensorNames.forEach(sensor => {
-    const checkbox = document.getElementById(sensor + "-enable");
-    checkbox.addEventListener("change", () => {
-        const event = new CustomEvent('sensor-toggle', { detail: { sensor: sensor, enabled: checkbox.checked } });
-        window.dispatchEvent(event);
+    // ---------------- Farm Type -----------------
+    const dropdown = document.getElementById("farm-type-dropdown");
+    const currentType = localStorage.getItem("farmType") || "soil";
+    dropdown.value = currentType;
+    dropdown.addEventListener("change", () => {
+        localStorage.setItem("farmType", dropdown.value);
+        alert(`Farm type set to ${dropdown.value === "soil" ? "Soil Farm" : "Hydroponic Farm"}. Dashboard will reflect the change on refresh.`);
     });
-});
 
-// ---------------- Pump Scheduling -----------------
-const scheduleTypeSelect = document.getElementById("schedule-type");
-const singleSettingsDiv = document.getElementById("single-settings");
-const cycleSettingsDiv = document.getElementById("cycle-settings");
+    // ---------------- Actuators -----------------
+    const actuatorButtons = {
+        Fan: document.getElementById("Fan-btn"),
+        Light: document.getElementById("Light-btn"),
+        Pump: document.getElementById("Pump-btn")
+    };
 
-scheduleTypeSelect.addEventListener("change", () => {
-    if(scheduleTypeSelect.value === "cycle") {
-        singleSettingsDiv.style.display = "none";
-        cycleSettingsDiv.style.display = "block";
-    } else {
-        singleSettingsDiv.style.display = "block";
-        cycleSettingsDiv.style.display = "none";
+    async function fetchActuators() {
+        try {
+            const res = await fetch("/actuators");
+            const data = await res.json();
+            Object.keys(data).forEach(name => {
+                const elem = document.getElementById(name + "-state");
+                if(elem) elem.innerText = data[name] ? "ON" : "OFF";
+            });
+        } catch (err) { console.error("Actuator fetch error:", err); }
     }
-});
 
-const scheduleList = document.getElementById("schedule-list");
-
-async function fetchSchedules() {
-    try {
-        const res = await fetch("/get-pump-schedule");
-        const data = await res.json();
-        scheduleList.innerHTML = "";
-        data.forEach(s => {
-            const li = document.createElement("li");
-            if(s.type === "cycle") {
-                li.textContent = `${s.day} - Cycle ON ${s.on_duration}min / OFF ${s.off_duration}min`;
-            } else {
-                li.textContent = `${s.day} - ${s.start_time} for ${s.duration} min`;
-            }
-            const delBtn = document.createElement("button");
-            delBtn.textContent = "Delete";
-            delBtn.style.marginLeft = "10px";
-            delBtn.addEventListener("click", async () => {
-                await fetch("/delete-pump-schedule", {
-                    method: "POST",
-                    headers: {"Content-Type":"application/json"},
-                    body: JSON.stringify({id: s.id})
-                });
-                fetchSchedules();
+    async function toggleActuator(name) {
+        const currentState = document.getElementById(name + "-state").innerText === "ON";
+        try {
+            const res = await fetch("/toggle-actuator", {
+                method: "POST",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({name:name, state:!currentState})
             });
-            li.appendChild(delBtn);
-            scheduleList.appendChild(li);
+            const data = await res.json();
+            if(data.success) fetchActuators();
+        } catch(err) { console.error("Toggle actuator error:", err); }
+    }
+
+    Object.keys(actuatorButtons).forEach(name => {
+        actuatorButtons[name].addEventListener("click", () => toggleActuator(name));
+    });
+    fetchActuators();
+    setInterval(fetchActuators, 5000);
+
+    // ---------------- Sensor Enable/Disable -----------------
+    const sensorNames = {{ sensor_names | tojson }};
+    sensorNames.forEach(sensor => {
+        const checkbox = document.getElementById(sensor + "-enable");
+        if(!checkbox) return;
+        checkbox.addEventListener("change", () => {
+            const event = new CustomEvent('sensor-toggle', { detail: { sensor: sensor, enabled: checkbox.checked } });
+            window.dispatchEvent(event);
         });
-    } catch(err) { console.error(err); }
-}
+    });
 
-document.getElementById("add-schedule-btn").addEventListener("click", async () => {
-    const day = document.getElementById("day-select").value;
-    const schedule_type = scheduleTypeSelect.value;
-    const start_time = document.getElementById("start-time").value;
-    const duration = parseInt(document.getElementById("duration").value);
-    const on_duration = parseInt(document.getElementById("on-duration").value) || 0;
-    const off_duration = parseInt(document.getElementById("off-duration").value) || 0;
+    // ---------------- Pump Scheduling -----------------
+    const scheduleTypeSelect = document.getElementById("schedule-type");
+    const singleSettingsDiv = document.getElementById("single-settings");
+    const cycleSettingsDiv = document.getElementById("cycle-settings");
+    scheduleTypeSelect.addEventListener("change", () => {
+        if(scheduleTypeSelect.value === "cycle") {
+            singleSettingsDiv.style.display = "none";
+            cycleSettingsDiv.style.display = "block";
+        } else {
+            singleSettingsDiv.style.display = "block";
+            cycleSettingsDiv.style.display = "none";
+        }
+    });
 
-    if(schedule_type === "single" && (!start_time || duration <= 0)) { alert("Enter valid time/duration"); return; }
-    if(schedule_type === "cycle" && (on_duration <= 0 || off_duration <= 0)) { alert("Enter valid ON/OFF durations"); return; }
+    const scheduleList = document.getElementById("schedule-list");
 
-    try {
-        const body = schedule_type === "single"
-            ? {day, type:"single", start_time, duration}
-            : {day, type:"cycle", on_duration, off_duration};
-        const res = await fetch("/set-pump-schedule", {
-            method: "POST",
-            headers: {"Content-Type":"application/json"},
-            body: JSON.stringify(body)
-        });
-        const data = await res.json();
-        if(data.success) fetchSchedules();
-    } catch(err) { console.error(err); }
-});
-
-fetchSchedules();
-setInterval(fetchSchedules, 10000);
-
-// ---------------- PDF Management -----------------
-async function fetchPDFs() {
-    try {
-        const res = await fetch("/files");
-        const data = await res.json();
-        const list = document.getElementById("pdf-list");
-        list.innerHTML = "";
-        data.files.forEach(f => {
-            const li = document.createElement("li");
-            const viewLink = document.createElement("a");
-            viewLink.href = `/files/view/${f}`;
-            viewLink.target = "_blank";
-            viewLink.textContent = f;
-
-            const delBtn = document.createElement("button");
-            delBtn.textContent = "Delete";
-            delBtn.style.marginLeft = "10px";
-            delBtn.addEventListener("click", async () => {
-                await fetch("/files/delete", {
-                    method: "POST",
-                    headers: {"Content-Type":"application/json"},
-                    body: JSON.stringify({filename: f})
+    async function fetchSchedules() {
+        try {
+            const res = await fetch("/get-pump-schedule");
+            const data = await res.json();
+            scheduleList.innerHTML = "";
+            data.forEach(s => {
+                const li = document.createElement("li");
+                if(s.type === "cycle") {
+                    li.textContent = `${s.day} - Cycle ON ${s.on_duration}min / OFF ${s.off_duration}min`;
+                } else {
+                    li.textContent = `${s.day} - ${s.start_time} for ${s.duration} min`;
+                }
+                const delBtn = document.createElement("button");
+                delBtn.textContent = "Delete";
+                delBtn.style.marginLeft = "10px";
+                delBtn.addEventListener("click", async () => {
+                    await fetch("/delete-pump-schedule", {
+                        method: "POST",
+                        headers: {"Content-Type":"application/json"},
+                        body: JSON.stringify({id: s.id})
+                    });
+                    fetchSchedules();
                 });
+                li.appendChild(delBtn);
+                scheduleList.appendChild(li);
+            });
+        } catch(err) { console.error("Fetch schedules error:", err); }
+    }
+
+    document.getElementById("add-schedule-btn").addEventListener("click", async () => {
+        const day = document.getElementById("day-select").value;
+        const schedule_type = scheduleTypeSelect.value;
+        const start_time = document.getElementById("start-time").value;
+        const duration = parseInt(document.getElementById("duration").value);
+        const on_duration = parseInt(document.getElementById("on-duration").value) || 0;
+        const off_duration = parseInt(document.getElementById("off-duration").value) || 0;
+
+        if(schedule_type === "single" && (!start_time || duration <= 0)) { alert("Enter valid time/duration"); return; }
+        if(schedule_type === "cycle" && (on_duration <= 0 || off_duration <= 0)) { alert("Enter valid ON/OFF durations"); return; }
+
+        try {
+            const body = schedule_type === "single"
+                ? {day, type:"single", start_time, duration}
+                : {day, type:"cycle", on_duration, off_duration};
+            const res = await fetch("/set-pump-schedule", {
+                method: "POST",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if(data.success) fetchSchedules();
+        } catch(err) { console.error("Add schedule error:", err); }
+    });
+
+    fetchSchedules();
+    setInterval(fetchSchedules, 10000);
+
+    // ---------------- PDF Management -----------------
+    const pdfListElem = document.getElementById("pdf-list");
+    async function fetchPDFs() {
+        try {
+            const res = await fetch("/files");
+            const data = await res.json();
+            console.log("Fetched PDFs:", data);
+            pdfListElem.innerHTML = "";
+            data.files.forEach(f => {
+                const li = document.createElement("li");
+                const viewLink = document.createElement("a");
+                viewLink.href = `/files/view/${f}`;
+                viewLink.target = "_blank";
+                viewLink.textContent = f;
+
+                const delBtn = document.createElement("button");
+                delBtn.textContent = "Delete";
+                delBtn.style.marginLeft = "10px";
+                delBtn.addEventListener("click", async () => {
+                    await fetch("/files/delete", {
+                        method: "POST",
+                        headers: {"Content-Type":"application/json"},
+                        body: JSON.stringify({filename: f})
+                    });
+                    fetchPDFs();
+                });
+
+                li.appendChild(viewLink);
+                li.appendChild(delBtn);
+                pdfListElem.appendChild(li);
+            });
+        } catch(err) { console.error("Fetch PDFs error:", err); }
+    }
+
+    document.getElementById("upload-btn").addEventListener("click", async () => {
+        const fileInput = document.getElementById("pdf-upload");
+        if(fileInput.files.length === 0) return alert("Select a PDF to upload");
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        try {
+            const res = await fetch("/files/upload", {method: "POST", body: formData});
+            const data = await res.json();
+            if(data.success) {
+                fileInput.value = "";
                 fetchPDFs();
-            });
+            } else alert(data.error || "Upload failed");
+        } catch(err) { console.error("Upload PDF error:", err); }
+    });
 
-            li.appendChild(viewLink);
-            li.appendChild(delBtn);
-            list.appendChild(li);
-        });
-    } catch(err) { console.error(err); }
-}
+    document.getElementById("retrain-btn").addEventListener("click", async () => {
+        try {
+            const res = await fetch("/retrain-ai", {method: "POST"});
+            const data = await res.json();
+            if(data.success) alert("AI retraining complete");
+            else alert(data.error || "Retraining failed");
+        } catch(err) { console.error("Retrain AI error:", err); }
+    });
 
-document.getElementById("upload-btn").addEventListener("click", async () => {
-    const fileInput = document.getElementById("pdf-upload");
-    if(fileInput.files.length === 0) return alert("Select a PDF to upload");
-    const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
-    const res = await fetch("/files/upload", {method: "POST", body: formData});
-    const data = await res.json();
-    if(data.success) {
-        fileInput.value = "";
-        fetchPDFs();
-    } else alert(data.error || "Upload failed");
+    fetchPDFs();
+
 });
-
-document.getElementById("retrain-btn").addEventListener("click", async () => {
-    const res = await fetch("/retrain-ai", {method: "POST"});
-    const data = await res.json();
-    if(data.success) alert("AI retraining complete");
-    else alert(data.error || "Retraining failed");
-});
-
-fetchPDFs();
-
 </script>
 
 {% endblock %}

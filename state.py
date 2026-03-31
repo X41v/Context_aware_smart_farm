@@ -7,7 +7,7 @@ from pathlib import Path
 sensor_names = [
     "ESP32_Temp", "ESP32_Humidity", "ESP32_Pressure", "ESP32_Light", "ESP32_Rain",
     "ESP32_Soil", "ESP32_SoilTemp", "ESP32_Gas", "ESP32_WaterFlow", "ESP32_TankLevel",
-    "ESP32_pH", "ESP32_TDS", "ESP32_EC"
+    "ESP32_pH", "ESP32_TDS"
 ]
 latest_readings = {name: 0 for name in sensor_names}
 
